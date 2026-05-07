@@ -1,60 +1,48 @@
 import pandas as pd
 import yfinance as yf
+import os
 
+
+def compute_value_tv(returns):
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # Load book value and prices
+    bv_raw = pd.read_csv(os.path.join(base, 'data', 'book_value_annual.csv'))
+    bv_raw['date'] = pd.to_datetime(bv_raw['date']).dt.tz_localize(None)
+
+    prices = pd.read_csv(os.path.join(base, 'data', 'prices.csv'),
+                         index_col=0, parse_dates=True)
+    prices.index = prices.index.tz_localize(None)
+
+    # Pivot book value
+    bv_pivot = bv_raw.pivot_table(index='date', columns='ticker', values='book_value_per_share')
+
+    # Reindex to full daily calendar (not just trading days) then forward fill
+    full_index = pd.date_range(start=bv_pivot.index.min(),
+                               end=returns.index.max(), freq='D')
+    bv_daily_full = bv_pivot.reindex(full_index).ffill()
+
+    # Now select only trading days from returns index
+    returns_index_normalized = returns.index.normalize()
+    bv_daily = bv_daily_full.reindex(returns_index_normalized)
+    bv_daily.index = returns.index  # restore original index
+
+    # Align with prices and compute P/B
+    common = bv_daily.columns.intersection(prices.columns)
+    pb_daily = prices[common] / bv_daily[common]
+
+    return pb_daily
 
 def compute_value(tickers):
-    """
-    Computes the value factor using Price-to-Book (P/B) ratio.
-
-    P/B = Market Price / Book Value per Share
-    Lower P/B = stock is cheaper relative to its accounting value = better value.
-
-    rank ascending=False so that the lowest P/B gets the highest rank.
-
-    Known limitation: Companies with negative equity (e.g. ABBV) produce
-    negative P/B ratios, which should be excluded before ranking.
-
-    Args:
-        tickers: list of stock ticker strings
-
-    Returns:
-        pb_series: pandas Series of raw P/B ratios indexed by ticker
-        pb_ranked: pandas Series of ranks (higher rank = better value)
-    """
+    """Legacy static version — kept for compatibility."""
     pb_dict = {}
-
     for ticker in tickers:
         try:
             stock = yf.Ticker(ticker)
-
-            # priceToBook is available directly in yfinance info
             pb = stock.info.get("priceToBook", None)
             pb_dict[ticker] = pb
-
         except:
-            # If data is unavailable, store None
             pb_dict[ticker] = None
-
     pb_series = pd.Series(pb_dict)
-
-    # Lower P/B = better value = should get higher rank
-    # ascending=False ensures lowest P/B receives rank 20 (best)
     pb_ranked = pb_series.rank(ascending=False)
-
     return pb_series, pb_ranked
-
-
-if __name__ == "__main__":
-    tickers = [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
-        "META", "TSLA", "JPM", "V", "UNH",
-        "XOM", "JNJ", "WMT", "PG", "MA",
-        "HD", "CVX", "MRK", "ABBV", "PEP"
-    ]
-
-    pb, pb_ranked = compute_value(tickers)
-
-    print("Price-to-Book ratios:")
-    print(pb.sort_values(ascending=True))
-    print("\nValue Rankings (higher rank = better value):")
-    print(pb_ranked.sort_values(ascending=False))

@@ -1,66 +1,49 @@
 import pandas as pd
-import yfinance as yf
+import os
+
+def compute_profitability_tv(returns_index):
+    """
+    Time-varying profitability factor using quarterly ROE.
+    Forward-fills quarterly values to daily frequency.
+    """
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    roe_raw = pd.read_csv(os.path.join(base, 'data', 'roe_quarterly.csv'))
+    roe_raw['date'] = pd.to_datetime(roe_raw['date']).dt.tz_localize(None)
+
+    # Pivot to wide format
+    roe_pivot = roe_raw.pivot_table(index='date', columns='ticker', values='roe')
+
+    # Reindex to full daily calendar first, then forward-fill
+    full_index = pd.date_range(
+        start=roe_pivot.index.min(),
+        end=pd.Timestamp(returns_index.max()).tz_localize(None),
+        freq='D'
+    )
+    roe_daily_full = roe_pivot.reindex(full_index).ffill()
+
+    # Now select only trading days
+    returns_index_normalized = returns_index.normalize()
+    if returns_index_normalized.tz is not None:
+        returns_index_normalized = returns_index_normalized.tz_localize(None)
+
+    roe_daily = roe_daily_full.reindex(returns_index_normalized)
+    roe_daily.index = returns_index
+
+    return roe_daily
 
 
 def compute_profitability(tickers):
-    """
-    Computes the profitability factor using Return on Equity (ROE).
-
-    ROE = Net Income / Shareholders Equity
-    Higher ROE = more profitable = higher rank.
-
-    Data is pulled from yfinance financials (most recent fiscal year).
-
-    Known limitation: Companies with negative equity (e.g. ABBV due to
-    heavy buybacks) produce negative ROE, which distorts rankings.
-    These should be handled carefully in production systems.
-
-    Args:
-        tickers: list of stock ticker strings
-
-    Returns:
-        roe_series: pandas Series of ROE values indexed by ticker
-    """
+    """Legacy static version."""
+    import yfinance as yf
     roe_dict = {}
-
     for ticker in tickers:
         try:
             stock = yf.Ticker(ticker)
-
-            # Pull income statement and balance sheet
             income = stock.financials
             balance = stock.balance_sheet
-
-            # Use most recent fiscal year (iloc[0])
             net_income = income.loc["Net Income"].iloc[0]
             equity = balance.loc["Stockholders Equity"].iloc[0]
-
-            # Compute ROE
-            roe = net_income / equity
-            roe_dict[ticker] = roe
-
+            roe_dict[ticker] = net_income / equity
         except:
-            # If data is unavailable for a ticker, store None
             roe_dict[ticker] = None
-
-    roe_series = pd.Series(roe_dict)
-    return roe_series
-
-
-if __name__ == "__main__":
-    tickers = [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
-        "META", "TSLA", "JPM", "V", "UNH",
-        "XOM", "JNJ", "WMT", "PG", "MA",
-        "HD", "CVX", "MRK", "ABBV", "PEP"
-    ]
-
-    roe = compute_profitability(tickers)
-
-    # Rank by ROE — higher ROE gets higher rank
-    roe_ranked = roe.rank(ascending=True)
-
-    print("ROE scores:")
-    print(roe.sort_values(ascending=False))
-    print("\nRankings (higher = more profitable):")
-    print(roe_ranked.sort_values(ascending=False))
+    return pd.Series(roe_dict)

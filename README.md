@@ -61,6 +61,12 @@ drawdown risk.
   time-varying, which introduces look-ahead bias
 - ABBV was excluded from value rankings due to negative equity distorting 
   the P/B ratio
+- **On time-varying fundamentals:**
+- An attempt was made to extend the model to 500 stocks with quarterly time-varying ROE and P/B ratios. 
+- This was abandoned because yfinance only provides the most recent financials, not a historical database — 
+- meaning even "quarterly" data carries look-ahead bias. A production implementation would use Compustat, Bloomberg, 
+- or SEC EDGAR filings to source point-in-time fundamentals. 
+- This is standard practice at quantitative funds and a natural next step for this project.
 
 ---
 
